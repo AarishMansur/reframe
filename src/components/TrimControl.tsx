@@ -1,7 +1,7 @@
 "use client";
 
 import { EditRecipe } from "@/lib/types";
-import { useState } from "react";
+import { useState,useRef,useEffect,useCallback } from "react";
 import { AlertCircle } from "lucide-react";
 
 interface Props {
@@ -15,6 +15,49 @@ export default function TrimControl({ recipe, onChange, duration }: Props) {
   const [invalidEnd, setEnd] = useState(false);
   const [startErrorMsg, setStartErrorMsg] = useState("");
   const [endErrorMsg, setEndErrorMsg] = useState("");
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef<"start"|"end" | null>(null);
+
+
+ 
+  const xToSeconds = useCallback((clientX: number) => {
+  const track = trackRef.current;
+  if (!track || duration <= 0) return 0;
+  const { left, width } = track.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (clientX - left) / width));
+  return parseFloat((ratio * duration).toFixed(1));
+}, [duration]);
+
+const applyDrag = useCallback((clientX: number) => {
+  const seconds = xToSeconds(clientX);
+  if (dragging.current === "start") {
+    const clamped = Math.min(seconds, (recipe.trimEnd ?? duration) - 0.1);
+    onChange({ trimStart: Math.max(0, clamped) });
+  } else if (dragging.current === "end") {
+    const clamped = Math.max(seconds, recipe.trimStart + 0.1);
+    onChange({ trimEnd: Math.min(duration, clamped) });
+  }
+}, [xToSeconds, duration, recipe.trimStart, recipe.trimEnd, onChange]);
+
+useEffect(()=>{
+   const onMove = (e: MouseEvent | TouchEvent) => {
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    applyDrag(clientX);
+  };
+  const onUp = () => { dragging.current = null; };
+
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+  document.addEventListener("touchmove", onMove);
+  document.addEventListener("touchend", onUp);
+
+  return () => {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    document.removeEventListener("touchmove", onMove);
+    document.removeEventListener("touchend", onUp);
+  };
+},[applyDrag])
 
   const handleStart = (val: string) => {
     const n = parseFloat(val);
@@ -66,6 +109,64 @@ export default function TrimControl({ recipe, onChange, duration }: Props) {
 
   return (
     <div className="space-y-3">
+{duration > 0 && (
+  <div
+    ref={trackRef}
+    className="relative h-6 flex items-center cursor-pointer select-none"
+    onClick={(e) => {
+      if (dragging.current) return;
+      const s = xToSeconds(e.clientX);
+      onChange({ trimStart: s });
+    }}
+  >
+   
+    <div className="absolute inset-x-0 h-1.5 rounded-full bg-[var(--border)]" />
+
+  
+    <div
+      className="absolute h-1.5 rounded-full bg-film-400 opacity-60"
+      style={{
+        left: `${(recipe.trimStart / duration) * 100}%`,
+        right: `${((duration - (recipe.trimEnd ?? duration)) / duration) * 100}%`,
+      }}
+    />
+
+   
+    <div
+      role="slider"
+      aria-label="Trim start"
+      aria-valuenow={recipe.trimStart}
+      aria-valuemin={0}
+      aria-valuemax={duration}
+      tabIndex={0}
+      className="absolute w-4 h-4 rounded-full bg-white border-2 border-film-400 shadow cursor-grab active:cursor-grabbing -translate-x-1/2 focus:outline-none focus:ring-2 focus:ring-film-400"
+      style={{ left: `${(recipe.trimStart / duration) * 100}%` }}
+      onMouseDown={() => { dragging.current = "start"; }}
+      onTouchStart={() => { dragging.current = "start"; }}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft") onChange({ trimStart: Math.max(0, recipe.trimStart - 0.1) });
+        if (e.key === "ArrowRight") onChange({ trimStart: Math.min((recipe.trimEnd ?? duration) - 0.1, recipe.trimStart + 0.1) });
+      }}
+    />
+
+    <div
+      role="slider"
+      aria-label="Trim end"
+      aria-valuenow={recipe.trimEnd ?? duration}
+      aria-valuemin={0}
+      aria-valuemax={duration}
+      tabIndex={0}
+      className="absolute w-4 h-4 rounded-full bg-white border-2 border-film-400 shadow cursor-grab active:cursor-grabbing -translate-x-1/2 focus:outline-none focus:ring-2 focus:ring-film-400"
+      style={{ left: `${((recipe.trimEnd ?? duration) / duration) * 100}%` }}
+      onMouseDown={() => { dragging.current = "end"; }}
+      onTouchStart={() => { dragging.current = "end"; }}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft") onChange({ trimEnd: Math.max(recipe.trimStart + 0.1, (recipe.trimEnd ?? duration) - 0.1) });
+        if (e.key === "ArrowRight") onChange({ trimEnd: Math.min(duration, (recipe.trimEnd ?? duration) + 0.1) });
+      }}
+    />
+  </div>
+)}
       <div className="flex gap-3">
         <div className="flex-1">
           <label htmlFor="trim-start" className="text-sm font-heading font-semibold uppercase tracking-wider text-[var(--muted)] block mb-2">
